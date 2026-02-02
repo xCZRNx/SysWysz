@@ -58,6 +58,7 @@ Skrypt umożliwia filtrowanie danych wejściowych (Kryterium – **1 pkt za filt
 5. Liczba posiadanych gier przez autora.
 
 ### 5. Wizualizacje (16 pkt)
+
 Skrypt zawiera 4 wizualizacje
 ---
 
