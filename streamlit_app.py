@@ -131,13 +131,14 @@ def models_training(df_filtered):
     with progress_container:
         # TF-IDF Vectorization
         st.write("Vectorizing text with TF-IDF...")
-        tfidf = TfidfVectorizer(max_features=2000, stop_words='english', min_df=5, max_df=0.8)
+        tfidf = TfidfVectorizer(ngram_range=(1, 3), max_features=5000, stop_words='english', min_df=3, max_df=0.8)
         X = tfidf.fit_transform(df_filtered['lemmatized_review'])
         y = df_filtered['voted_up']
         
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
         
         # Store in session state
+        st.write(X.shape)
         st.session_state.X_train = X_train
         st.session_state.X_test = X_test
         st.session_state.y_train = y_train
