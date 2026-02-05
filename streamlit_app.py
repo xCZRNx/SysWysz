@@ -89,6 +89,8 @@ def load_data():
         query = """
         SELECT 
             review, 
+            clean_review,
+            lemmatized_review,
             voted_up,
             written_during_early_access,
             author_playtime_forever, 
@@ -121,6 +123,130 @@ def get_concurrent_players():
         st.warning(f"Could not fetch concurrent players: {str(e)}")
         return None
 
+# ===== MODEL TRAINING FUNCTION =====
+def models_training(df_filtered):
+    """Train all classification models and store results in session state"""
+    progress_container = st.container()
+    
+    with progress_container:
+        # TF-IDF Vectorization
+        st.write("Vectorizing text with TF-IDF...")
+        tfidf = TfidfVectorizer(max_features=2000, stop_words='english', min_df=5, max_df=0.8)
+        X = tfidf.fit_transform(df_filtered['lemmatized_review'])
+        y = df_filtered['voted_up']
+        
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
+        
+        # Store in session state
+        st.session_state.X_train = X_train
+        st.session_state.X_test = X_test
+        st.session_state.y_train = y_train
+        st.session_state.y_test = y_test
+        st.session_state.tfidf = tfidf
+        st.session_state.feature_names = np.array(tfidf.get_feature_names_out())
+        
+        results = {}
+        
+        # 1. Multinomial NB
+        st.write("1️⃣ Training Multinomial Naive Bayes...")
+        model = MultinomialNB(alpha=1.0)
+        model.fit(X_train, y_train)
+        y_pred = model.predict(X_test)
+        acc = accuracy_score(y_test, y_pred)
+        precision, recall, f1, _ = precision_recall_fscore_support(y_test, y_pred, average='weighted')
+        results['Multinomial NB'] = {
+            'model': model,
+            'pred': y_pred,
+            'acc': acc,
+            'precision': precision,
+            'recall': recall,
+            'f1': f1,
+        }
+        
+        # 2. Bernoulli NB
+        st.write("2️⃣ Training Bernoulli Naive Bayes...")
+        ber_model = BernoulliNB(alpha=1.0)
+        ber_model.fit(X_train, y_train)
+        y_pred_ber = ber_model.predict(X_test)
+        acc_ber = accuracy_score(y_test, y_pred_ber)
+        precision_ber, recall_ber, f1_ber, _ = precision_recall_fscore_support(y_test, y_pred_ber, average='weighted')
+        results['Bernoulli NB'] = {
+            'model': ber_model,
+            'pred': y_pred_ber,
+            'acc': acc_ber,
+            'precision': precision_ber,
+            'recall': recall_ber,
+            'f1': f1_ber,
+        }
+        
+        # 3. LinearSVC
+        st.write("3️⃣ Training LinearSVC...")
+        svm_model = LinearSVC(random_state=42, max_iter=2000, C=1.0)
+        svm_model.fit(X_train, y_train)
+        y_pred_svm = svm_model.predict(X_test)
+        acc_svm = accuracy_score(y_test, y_pred_svm)
+        precision_svm, recall_svm, f1_svm, _ = precision_recall_fscore_support(y_test, y_pred_svm, average='weighted')
+        results['LinearSVC'] = {
+            'model': svm_model,
+            'pred': y_pred_svm,
+            'acc': acc_svm,
+            'precision': precision_svm,
+            'recall': recall_svm,
+            'f1': f1_svm
+        }
+        
+        # 4. k-NN
+        st.write("4️⃣ Training k-Nearest Neighbors...")
+        knn_model = KNeighborsClassifier(n_neighbors=5, n_jobs=-1)
+        knn_model.fit(X_train, y_train)
+        y_pred_knn = knn_model.predict(X_test)
+        acc_knn = accuracy_score(y_test, y_pred_knn)
+        precision_knn, recall_knn, f1_knn, _ = precision_recall_fscore_support(y_test, y_pred_knn, average='weighted')
+        results['k-NN (k=5)'] = {
+            'model': knn_model,
+            'pred': y_pred_knn,
+            'acc': acc_knn,
+            'precision': precision_knn,
+            'recall': recall_knn,
+            'f1': f1_knn,
+        }
+        
+        # 5. Random Forest
+        st.write("5️⃣ Training Random Forest...")
+        rf_model = RandomForestClassifier(n_estimators=100, random_state=42, n_jobs=-1, max_depth=15)
+        rf_model.fit(X_train, y_train)
+        y_pred_rf = rf_model.predict(X_test)
+        acc_rf = accuracy_score(y_test, y_pred_rf)
+        precision_rf, recall_rf, f1_rf, _ = precision_recall_fscore_support(y_test, y_pred_rf, average='weighted')
+        results['Random Forest'] = {
+            'model': rf_model,
+            'pred': y_pred_rf,
+            'acc': acc_rf,
+            'precision': precision_rf,
+            'recall': recall_rf,
+            'f1': f1_rf,
+        }
+        
+        # 6. Gradient Boosting
+        st.write("6️⃣ Training Gradient Boosting...")
+        gb_model = GradientBoostingClassifier(n_estimators=100, random_state=42, learning_rate=0.1, max_depth=5)
+        gb_model.fit(X_train, y_train)
+        y_pred_gb = gb_model.predict(X_test)
+        acc_gb = accuracy_score(y_test, y_pred_gb)
+        precision_gb, recall_gb, f1_gb, _ = precision_recall_fscore_support(y_test, y_pred_gb, average='weighted')
+        results['Gradient Boosting'] = {
+            'model': gb_model,
+            'pred': y_pred_gb,
+            'acc': acc_gb,
+            'precision': precision_gb,
+            'recall': recall_gb,
+            'f1': f1_gb,
+        }
+        
+        st.session_state.results = results
+        st.session_state.training_complete = True
+        st.success("✅ Training complete!")
+
 # ===== MAIN APP =====
 def main():
     st.title("🎮 CS:GO Steam Reviews Sentiment Analysis")
@@ -133,7 +259,8 @@ def main():
     
     # Sidebar - Filtering
     st.sidebar.header("⚙️ Filter Parameters")
-    
+
+    posiada_slowo = st.sidebar.text_input("Filter reviews containing word (optional)", "")
     min_godzin = st.sidebar.slider("Minimum playtime (hours)", 0, 1000, 50)
     min_recenzji = st.sidebar.slider("Minimum reviews by author", 1, 100, 1)
     min_votes_up = st.sidebar.slider("Minimum upvotes", 0, 100, 1)
@@ -144,7 +271,8 @@ def main():
         (df['author_playtime_hours'] >= min_godzin) &
         (df['author_num_reviews'] >= min_recenzji) &
         (df['votes_up'] >= min_votes_up) &
-        (df['author.num_games_owned'] >= posiadane_gry)
+        (df['author.num_games_owned'] >= posiadane_gry) &
+        (df['clean_review'].str.contains(posiada_slowo, case=False, na=False))
     ].copy()
     
     # Display statistics
@@ -201,18 +329,26 @@ def main():
         with col1:
             fig, ax = plt.subplots(figsize=(8, 6))
             sentiment_counts = df_filtered['voted_up'].value_counts().sort_index()
-            colors = ['#d62728', '#2ca02c']
-            wedges, texts, autotexts = ax.pie(
-                sentiment_counts, 
-                labels=['Negative', 'Positive'],
-                autopct='%1.1f%%',
-                colors=colors,
-                startangle=90
-            )
-            for autotext in autotexts:
-                autotext.set_color('white')
-                autotext.set_fontweight('bold')
-                autotext.set_fontsize(12)
+            
+            # Map sentiment indices to labels
+            sentiment_labels = {0: 'Negative', 1: 'Positive'}
+            labels = [sentiment_labels[idx] for idx in sentiment_counts.index]
+            colors_map = {0: '#d62728', 1: '#2ca02c'}
+            colors = [colors_map[idx] for idx in sentiment_counts.index]
+            
+            if len(sentiment_counts) > 0:
+                wedges, texts, autotexts = ax.pie(
+                    sentiment_counts, 
+                    labels=labels,
+                    autopct='%1.1f%%',
+                    colors=colors,
+                    startangle=90
+                )
+                for autotext in autotexts:
+                    autotext.set_color('white')
+                    autotext.set_fontweight('bold')
+                    autotext.set_fontsize(12)
+            
             ax.set_title(f'Sentiment Distribution (n={len(df_filtered)})', fontweight='bold', fontsize=12)
             st.pyplot(fig)
         
@@ -233,24 +369,12 @@ def main():
     with tab2:
         st.subheader("Text Processing & Analysis")
         
-        # Process text
-        progress_bar = st.progress(0)
-        status_text = st.empty()
+        st.info("Reviews are pre-processed and lemmatized from database!")
         
-        status_text.text("Cleaning reviews...")
-        df_filtered['clean_review'] = df_filtered['review'].apply(clean_text)
-        progress_bar.progress(33)
-        
-        status_text.text("Calculating statistics...")
-        df_filtered['review_length'] = df_filtered['clean_review'].str.len()
-        df_filtered['word_count'] = df_filtered['clean_review'].str.split().str.len()
-        progress_bar.progress(66)
-        
-        status_text.text("Lemmatizing text...")
-        nlp = get_nlp()
-        df_filtered['lemmatized_review'] = df_filtered['clean_review'].apply(lambda x: lemmatize_text(x, nlp))
-        progress_bar.progress(100)
-        status_text.text("✅ Text processing complete!")
+        if 'review_length' not in df_filtered.columns:
+            df_filtered['review_length'] = df_filtered['clean_review'].str.len()
+        if 'word_count' not in df_filtered.columns:
+            df_filtered['word_count'] = df_filtered['clean_review'].str.split().str.len()
         
         # Statistics
         col1, col2, col3, col4 = st.columns(4)
@@ -318,136 +442,59 @@ def main():
     with tab3:
         st.subheader("🤖 Model Training & Evaluation")
         
+        # Initialize training state if not exists
         if 'training_complete' not in st.session_state:
-            if st.button("🚀 Start Training Models", key="train_button"):
-                with st.spinner("Training models... This may take a few minutes"):
-                    # TF-IDF Vectorization
-                    st.write("Vectorizing text with TF-IDF...")
-                    tfidf = TfidfVectorizer(max_features=2000, stop_words='english', min_df=5, max_df=0.8)
-                    X = tfidf.fit_transform(df_filtered['lemmatized_review'])
-                    y = df_filtered['voted_up']
-                    
-                    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
-                    
-                    # Store in session state
-                    st.session_state.X_train = X_train
-                    st.session_state.X_test = X_test
-                    st.session_state.y_train = y_train
-                    st.session_state.y_test = y_test
-                    st.session_state.tfidf = tfidf
-                    st.session_state.feature_names = np.array(tfidf.get_feature_names_out())
-                    
-                    results = {}
-                    
-                    # 1. Multinomial NB
-                    st.write("Training Multinomial Naive Bayes...")
-                    model = MultinomialNB(alpha=1.0)
-                    model.fit(X_train, y_train)
-                    y_pred = model.predict(X_test)
-                    acc = accuracy_score(y_test, y_pred)
-                    precision, recall, f1, _ = precision_recall_fscore_support(y_test, y_pred, average='weighted')
-                    results['Multinomial NB'] = {
-                        'model': model,
-                        'pred': y_pred,
-                        'acc': acc,
-                        'precision': precision,
-                        'recall': recall,
-                        'f1': f1,
-                    }
-                    
-                    # 2. Bernoulli NB
-                    st.write("Training Bernoulli Naive Bayes...")
-                    ber_model = BernoulliNB(alpha=1.0)
-                    ber_model.fit(X_train, y_train)
-                    y_pred_ber = ber_model.predict(X_test)
-                    acc_ber = accuracy_score(y_test, y_pred_ber)
-                    precision_ber, recall_ber, f1_ber, _ = precision_recall_fscore_support(y_test, y_pred_ber, average='weighted')
-                    results['Bernoulli NB'] = {
-                        'model': ber_model,
-                        'pred': y_pred_ber,
-                        'acc': acc_ber,
-                        'precision': precision_ber,
-                        'recall': recall_ber,
-                        'f1': f1_ber,
-                    }
-                    
-                    # 3. LinearSVC
-                    st.write("Training LinearSVC...")
-                    svm_model = LinearSVC(random_state=42, max_iter=2000, C=1.0)
-                    svm_model.fit(X_train, y_train)
-                    y_pred_svm = svm_model.predict(X_test)
-                    acc_svm = accuracy_score(y_test, y_pred_svm)
-                    precision_svm, recall_svm, f1_svm, _ = precision_recall_fscore_support(y_test, y_pred_svm, average='weighted')
-                    results['LinearSVC'] = {
-                        'model': svm_model,
-                        'pred': y_pred_svm,
-                        'acc': acc_svm,
-                        'precision': precision_svm,
-                        'recall': recall_svm,
-                        'f1': f1_svm
-                    }
-                    
-                    # 4. k-NN
-                    st.write("Training k-Nearest Neighbors...")
-                    knn_model = KNeighborsClassifier(n_neighbors=5, n_jobs=-1)
-                    knn_model.fit(X_train, y_train)
-                    y_pred_knn = knn_model.predict(X_test)
-                    acc_knn = accuracy_score(y_test, y_pred_knn)
-                    precision_knn, recall_knn, f1_knn, _ = precision_recall_fscore_support(y_test, y_pred_knn, average='weighted')
-                    results['k-NN (k=5)'] = {
-                        'model': knn_model,
-                        'pred': y_pred_knn,
-                        'acc': acc_knn,
-                        'precision': precision_knn,
-                        'recall': recall_knn,
-                        'f1': f1_knn,
-                    }
-                    
-                    # 5. Random Forest
-                    st.write("Training Random Forest...")
-                    rf_model = RandomForestClassifier(n_estimators=100, random_state=42, n_jobs=-1, max_depth=15)
-                    rf_model.fit(X_train, y_train)
-                    y_pred_rf = rf_model.predict(X_test)
-                    acc_rf = accuracy_score(y_test, y_pred_rf)
-                    precision_rf, recall_rf, f1_rf, _ = precision_recall_fscore_support(y_test, y_pred_rf, average='weighted')
-                    results['Random Forest'] = {
-                        'model': rf_model,
-                        'pred': y_pred_rf,
-                        'acc': acc_rf,
-                        'precision': precision_rf,
-                        'recall': recall_rf,
-                        'f1': f1_rf,
-                    }
-                    
-                    # 6. Gradient Boosting
-                    st.write("Training Gradient Boosting...")
-                    gb_model = GradientBoostingClassifier(n_estimators=100, random_state=42, learning_rate=0.1, max_depth=5)
-                    gb_model.fit(X_train, y_train)
-                    y_pred_gb = gb_model.predict(X_test)
-                    acc_gb = accuracy_score(y_test, y_pred_gb)
-                    precision_gb, recall_gb, f1_gb, _ = precision_recall_fscore_support(y_test, y_pred_gb, average='weighted')
-                    results['Gradient Boosting'] = {
-                        'model': gb_model,
-                        'pred': y_pred_gb,
-                        'acc': acc_gb,
-                        'precision': precision_gb,
-                        'recall': recall_gb,
-                        'f1': f1_gb,
-                    }
-                    
-                    st.session_state.results = results
-                    st.session_state.training_complete = True
-                    st.success("✅ Training complete!")
-                    st.rerun()
+            st.session_state.training_complete = False
         
-        else:
-            st.success("✅ Models already trained!")
+        # Layout for training controls
+        col1, col2 = st.columns([2, 1])
+        
+        with col1:
+            if not st.session_state.training_complete:
+                if st.button("🚀 Start Training Models", key="train_button", use_container_width=True):
+                    with st.spinner("Training all models... This may take a few moments."):
+                        models_training(df_filtered=df_filtered)
+            else:
+                st.success("✅ Models trained successfully!")
+        
+        with col2:
+            if st.session_state.training_complete:
+                if st.button("🔄 Retrain Models", key="retrain_button", use_container_width=True):
+                    st.session_state.training_complete = False
+                    with st.spinner("Retraining all models..."):
+                        models_training(df_filtered=df_filtered)
+        
+        # Display results if training is complete
+        if st.session_state.training_complete and 'results' in st.session_state:
+            st.markdown("---")
+            st.subheader("📊 Training Results Summary")
+            
             results_df = pd.DataFrame([
                 {'Model': k, 'Accuracy': v['acc'], 'Precision': v['precision'], 
                  'Recall': v['recall'], 'F1-Score': v['f1']}
                 for k, v in st.session_state.results.items()
             ])
-            st.dataframe(results_df, use_container_width=True)
+            
+            # Display results table
+            st.dataframe(results_df, use_container_width=True, hide_index=True)
+            
+            # Show best model
+            best_idx = results_df['F1-Score'].idxmax()
+            best_model = results_df.loc[best_idx]
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                st.metric("🏆 Best Model", best_model['Model'])
+            with col2:
+                st.metric("F1-Score", f"{best_model['F1-Score']:.4f}")
+            with col3:
+                st.metric("Accuracy", f"{best_model['Accuracy']:.4f}")
+            with col4:
+                st.metric("Precision", f"{best_model['Precision']:.4f}")
+        
+        elif not st.session_state.training_complete:
+            st.info("👉 Click 'Start Training Models' to begin the training process.")
+
     
     with tab4:
         st.subheader("📊 Results & Visualizations")
